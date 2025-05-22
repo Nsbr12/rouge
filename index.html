@@ -5,38 +5,48 @@
 <title>Mini Rogue: Gold & Glory</title>
 <style>
   body {
-    background-color: #111;
-    color: #0f0;
+    background-color: #fff;
+    color: #000;
     font-family: monospace;
     padding: 20px;
   }
   #output {
     white-space: pre-wrap;
-    border: 1px solid #0f0;
+    border: 1px solid #000;
     padding: 10px;
     height: 600px;
     overflow-y: auto;
-    background-color: #000;
+    background-color: #eee;
+  }
+  #latestMessage {
+    white-space: pre-wrap;
+    border: 1px solid #000;
+    padding: 10px;
+    margin-bottom: 10px;
+    background-color: #eee;
+    height: auto;
+    min-height: 50px;
   }
   button {
     margin-top: 10px;
-    background-color: #222;
-    color: #0f0;
+    background-color: #ccc;
+    color: #000;
     padding: 10px;
-    border: 1px solid #0f0;
+    border: 1px solid #000;
     cursor: pointer;
     margin-right: 5px;
   }
   input {
     padding: 5px;
-    background-color: #000;
-    color: #0f0;
-    border: 1px solid #0f0;
+    background-color: #fff;
+    color: #000;
+    border: 1px solid #000;
   }
   #shop, #inventory {
     margin-top: 10px;
     padding: 10px;
-    border: 1px dashed #0f0;
+    border: 1px dashed #000;
+    background-color: #f9f9f9;
   }
 </style>
 </head>
@@ -51,12 +61,15 @@
 </div>
 
 <div id="game" style="display:none;">
+  <div id="latestMessage"></div>
   <div id="output"></div>
   <div id="controls">
     <button onclick="nextRoom()">Continue forward</button>
     <button onclick="toggleInventory()">Inventory</button>
+    <button onclick="toggleLog()">Show Log</button>
     <button onclick="saveGame()">Save</button>
     <button onclick="loadGame()">Load</button>
+    <button onclick="useBomb()">Use Bomb</button>
   </div>
   <div id="battle" style="display:none;">
     <p>Choose your attack:</p>
@@ -65,6 +78,7 @@
     <button onclick="attack('Ice')">Ice</button>
     <button onclick="attack('Poison')">Poison</button>
     <button onclick="attack('Lightning')">Lightning</button>
+    <button onclick="attack('Necrotic')">Necrotic</button>
   </div>
   <div id="shop" style="display:none;"></div>
   <div id="inventory" style="display:none;"></div>
@@ -75,168 +89,318 @@
 <audio id="buySound" src="https://cdn.pixabay.com/audio/2022/03/10/audio_f3c1348c29.mp3"></audio>
 
 <script>
-let playerName = "Tharion";
-let playerHP = 25, maxHP = 25, weaponLevel = 1, armorLevel = 0, gold = 10;
-let inventory = [];
-let roomCount = 0, inBattle = false, currentEnemy = null, foundDagskar = false;
+let roomCount = 0;
+let inBattle = false;
 let gameCompleted = false;
-
-const enemyTypes = [
-  { name: "Young Goblin", hp: 10, weakness: "Slash" },
-  { name: "Icy Wraith", hp: 12, weakness: "Fire" },
-  { name: "Fire Beast", hp: 14, weakness: "Ice" },
-  { name: "Rotten Warrior", hp: 11, weakness: "Poison" },
-  { name: "Storm Bat", hp: 13, weakness: "Lightning" },
-  { name: "Stone Golem", hp: 16, weakness: "Lightning" },
-  { name: "Venom Spider", hp: 12, weakness: "Fire" },
-  { name: "Dark Acolyte", hp: 18, weakness: "Slash" },
-  { name: "Undead Knight", hp: 20, weakness: "Poison" }
+let gameLog = [];
+let currentMonster = "";
+let bombs = 3;
+let gold = 20;
+let playerHP = 30;
+const maxHP = 45;
+let currentMonsterHP = 20;
+let isBossRoom = false;
+const monsters = [
+  {name:"Goblin", hp:20},
+  {name:"Skeleton", hp:25},
+  {name:"Shadow Beast", hp:30},
+  {name:"Cave Spider", hp:18},
+  {name:"Zombie", hp:22},
+  {name:"Wraith", hp:28},
+  {name:"Troll", hp:35},
+  {name:"Lurking Horror", hp:32}
 ];
+const boss = {name:"Ancient Dragon", hp:100};
 
-const bosses = [
-  { name: "Lord of Shadows", hp: 35, weakness: "Fire", boss: true },
-  { name: "Frost Witch", hp: 40, weakness: "Slash", boss: true },
-  { name: "Guardian of Flame", hp: 45, weakness: "Ice", boss: true }
-];
-
-function log(text) {
-  const output = document.getElementById('output');
-  output.innerText += '\n' + text;
+// Log message helper
+function log(message) {
+  const latestMessage = document.getElementById("latestMessage");
+  const output = document.getElementById("output");
+  latestMessage.textContent = message;
+  gameLog.push(message);
+  output.textContent = gameLog.join("\n");
   output.scrollTop = output.scrollHeight;
 }
 
-function playSound(id) {
-  document.getElementById(id).play();
+function toggleLog() {
+  const output = document.getElementById("output");
+  output.style.display = output.style.display === "none" ? "block" : "none";
 }
 
-function startGame() {
-  const nameInput = document.getElementById('playerNameInput').value.trim();
-  if (nameInput !== "") playerName = nameInput;
-  document.getElementById('intro').style.display = 'none';
-  document.getElementById('game').style.display = 'block';
-  log(`You are ${playerName}, returning to the cursed halls to reclaim your legend.`);
-  updateStatus();
-}
-
-function updateStatus() {
-  log(`HP: ${playerHP}/${maxHP} | Weapon: ${weaponLevel} | Armor: ${armorLevel} | Gold: ${gold} | Room: ${roomCount}`);
-  if (foundDagskar && roomCount >= 100 && !gameCompleted) {
-    gameCompleted = true;
-    log("\nYou have cleared 100 rooms since finding the Sword of Dagskar. Your legend is complete. You are victorious!");
-  }
-}
-
-function nextRoom() {
-  if (inBattle || gameCompleted) return;
-  roomCount++;
-  log(`\n--- Room ${roomCount} ---`);
-  const event = Math.random();
-  if (event < 0.15) startShop();
-  else if (event < 0.3) { log("Empty room. You rest a moment."); heal(3); }
-  else if (event < 0.45) findItem();
-  else startBattle();
-  updateStatus();
-}
-
+// Heal function (only from potions)
 function heal(amount) {
-  playerHP = Math.min(playerHP + amount, maxHP);
-  log(`+${amount} HP restored.`);
+  playerHP += amount;
+  if(playerHP > maxHP) playerHP = maxHP;
+  log(`You regain ${amount} HP. Current HP: ${playerHP}/${maxHP}`);
 }
 
+// Finding an item (bomb for example)
 function findItem() {
-  const item = ["Bomb", "Elixir", "Torch", "Sword of Dagskar"][Math.floor(Math.random()*4)];
-  if (item === "Sword of Dagskar" && !foundDagskar) {
-    foundDagskar = true;
-    inventory.push(item);
-    weaponLevel += 2;
-    log("You have found the legendary Sword of Dagskar! You feel a powerful destiny awaken.");
-  } else if (item !== "Sword of Dagskar") {
-    inventory.push(item);
-    log(`You found a ${item}.`);
-  } else {
-    log("You found nothing new.");
-  }
+  log("You find a mysterious item glinting in the shadows.");
+  bombs++;
+  log(`You found a bomb! Total bombs: ${bombs}`);
 }
 
-function toggleInventory() {
-  const inv = document.getElementById('inventory');
-  inv.style.display = inv.style.display === 'none' ? 'block' : 'none';
-  inv.innerHTML = `<p>Inventory: ${inventory.join(', ') || 'Empty'}</p>`;
+// Trader interface and functions
+function startShop() {
+  const shop = document.getElementById("shop");
+  shop.style.display = "block";
+  log("A mysterious trader appears in the room, offering rare goods.");
+  // Prices increased by 200% (3x original prices)
+  shop.innerHTML = `
+    <p>Trader's goods:</p>
+    <button onclick="buyItem('bomb', 30)">Buy Bomb (30 gold)</button>
+    <button onclick="buyItem('healthPotion', 45)">Buy Health Potion (+10 HP) (45 gold)</button>
+    <button onclick="closeShop()">Leave Trader</button>
+    <p>Your gold: ${gold}</p>
+  `;
 }
 
-function startBattle() {
-  currentEnemy = roomCount % 15 === 0 ? {...bosses[(roomCount/15-1)%bosses.length]} : {...enemyTypes[Math.floor(Math.random()*enemyTypes.length)]};
-  log(`Enemy appears: ${currentEnemy.name}. Weak to ${currentEnemy.weakness}`);
-  inBattle = true;
-  document.getElementById('battle').style.display = 'block';
-  document.getElementById('controls').style.display = 'none';
-}
-
-function attack(type) {
-  if (!inBattle) return;
-  playSound('hitSound');
-  let dmg = Math.floor(Math.random()*5)+2+weaponLevel;
-  if (type === currentEnemy.weakness) { dmg += 4; log("It's super effective!"); }
-  currentEnemy.hp -= dmg;
-  log(`${type} deals ${dmg} damage. Enemy HP: ${Math.max(0, currentEnemy.hp)}`);
-  if (currentEnemy.hp <= 0) {
-    log(`You defeated ${currentEnemy.name}!`);
-    gold += 10;
-    if (currentEnemy.boss) { heal(10); weaponLevel++; armorLevel++; log("You feel stronger."); }
-    inBattle = false;
-    document.getElementById('battle').style.display = 'none';
-    document.getElementById('controls').style.display = 'block';
+function buyItem(item, price) {
+  if (gold < price) {
+    log("You don't have enough gold!");
     return;
   }
-  let enemyDmg = Math.max(0, Math.floor(Math.random()*5)-armorLevel);
-  playerHP -= enemyDmg;
-  log(`${currentEnemy.name} hits back for ${enemyDmg} damage.`);
-  if (playerHP <= 0) { log("You fall. The darkness wins."); inBattle = false; }
+  gold -= price;
+  document.getElementById("buySound").play();
+  if(item === 'bomb') {
+    bombs++;
+    log("You bought a bomb.");
+  } else if(item === 'healthPotion') {
+    heal(10);
+    log("You bought and used a Health Potion.");
+  }
+  startShop(); // Refresh shop to update gold display
 }
 
-function startShop() {
-  const shop = document.getElementById('shop');
-  shop.innerHTML = `
-    <p>Trader offers you goods:</p>
-    <button onclick="buy('heal')">Potion (5 gold)</button>
-    <button onclick="buy('weapon')">Weapon Upgrade (10 gold)</button>
-    <button onclick="buy('armor')">Armor Upgrade (10 gold)</button>
-    <button onclick="buy('bomb')">Buy Bomb (8 gold)</button>
-    <button onclick="shopClose()">Leave</button>
-  `;
-  shop.style.display = 'block';
-  document.getElementById('controls').style.display = 'none';
+function closeShop() {
+  document.getElementById("shop").style.display = "none";
+  log("You leave the trader behind and continue your quest.");
 }
 
-function buy(item) {
-  playSound('buySound');
-  if (item === 'heal' && gold >= 5) { heal(10); gold -= 5; }
-  else if (item === 'weapon' && gold >= 10) { weaponLevel++; gold -= 10; }
-  else if (item === 'armor' && gold >= 10) { armorLevel++; gold -= 10; }
-  else if (item === 'bomb' && gold >= 8) { inventory.push("Bomb"); gold -= 8; }
-  else log("Not enough gold.");
-  updateStatus();
+// Battle start function
+function startBattle() {
+  inBattle = true;
+  isBossRoom = (roomCount % 15 === 0);
+  if(isBossRoom) {
+    currentMonster = boss.name;
+    currentMonsterHP = boss.hp;
+  } else {
+    const m = monsters[Math.floor(Math.random() * monsters.length)];
+    currentMonster = m.name;
+    currentMonsterHP = m.hp;
+  }
+  document.getElementById("battle").style.display = "block";
+  log(`A ${currentMonster} appears! Prepare for battle!`);
 }
 
-function shopClose() {
-  document.getElementById('shop').style.display = 'none';
-  document.getElementById('controls').style.display = 'block';
+// Attack function with damage calculations
+function attack(type) {
+  if(!inBattle) {
+    log("There is no enemy to attack!");
+    return;
+  }
+  document.getElementById("hitSound").play();
+
+  // Base damage
+  let damage = Math.floor(Math.random() * 6) + 5; // 5-10 damage
+  // Elemental effectiveness example (can be expanded)
+  // For simplicity: Fire strong vs Skeleton and Wraith, Ice strong vs Troll, Poison vs Zombie, Lightning vs Shadow Beast, Necrotic vs Lurking Horror
+  const effectiveness = {
+    "Fire": ["Skeleton", "Wraith"],
+    "Ice": ["Troll"],
+    "Poison": ["Zombie"],
+    "Lightning": ["Shadow Beast"],
+    "Necrotic": ["Lurking Horror"]
+  };
+  if(effectiveness[type] && effectiveness[type].includes(currentMonster)) {
+    damage = Math.floor(damage * 1.5);
+    log(`Your ${type} attack is super effective!`);
+  }
+
+  currentMonsterHP -= damage;
+  log(`You attack the ${currentMonster} with ${type} for ${damage} damage. Enemy HP: ${currentMonsterHP <= 0 ? 0 : currentMonsterHP}`);
+
+  if(currentMonsterHP <= 0) {
+    log(`You defeated the ${currentMonster}!`);
+    gold += isBossRoom ? 100 : 20;
+    log(`You found ${isBossRoom ? 100 : 20} gold.`);
+    inBattle = false;
+    document.getElementById("battle").style.display = "none";
+    currentMonster = "";
+
+    if(roomCount >= 100) {
+      log("Congratulations! You have cleared 100 rooms and completed your quest!");
+      gameCompleted = true;
+    }
+  } else {
+    enemyAttack();
+  }
 }
 
+// Enemy attacks player
+function enemyAttack() {
+  const damage = Math.floor(Math.random() * 6) + 3; // 3-8 damage
+  playerHP -= damage;
+  log(`The ${currentMonster} attacks you for ${damage} damage. Your HP: ${playerHP <= 0 ? 0 : playerHP}/${maxHP}`);
+
+  if(playerHP <= 0) {
+    log("You have fallen in battle. Game over.");
+    gameCompleted = true;
+    inBattle = false;
+    document.getElementById("battle").style.display = "none";
+  }
+}
+
+// Use bomb attack (10 damage to monster, 5 damage to self)
+function useBomb() {
+  if(!inBattle) {
+    log("You can only use bombs during battle!");
+    return;
+  }
+  if(bombs <= 0) {
+    log("You have no bombs left!");
+    return;
+  }
+  bombs--;
+  currentMonsterHP -= 10;
+  playerHP -= 5;
+  log(`You throw a bomb at the ${currentMonster}! It takes 10 damage, but you take 5 damage too! Enemy HP: ${currentMonsterHP <= 0 ? 0 : currentMonsterHP}. Your HP: ${playerHP <= 0 ? 0 : playerHP}/${maxHP}`);
+
+  if(playerHP <= 0) {
+    log("You died from the bomb explosion damage... Game over.");
+    gameCompleted = true;
+    inBattle = false;
+    document.getElementById("battle").style.display = "none";
+    return;
+  }
+
+  if(currentMonsterHP <= 0) {
+    log(`You defeated the ${currentMonster} with a bomb!`);
+    gold += isBossRoom ? 100 : 20;
+    log(`You found ${isBossRoom ? 100 : 20} gold.`);
+    inBattle = false;
+    document.getElementById("battle").style.display = "none";
+    currentMonster = "";
+
+    if(roomCount >= 100) {
+      log("Congratulations! You have cleared 100 rooms and completed your quest!");
+      gameCompleted = true;
+    }
+  } else {
+    enemyAttack();
+  }
+}
+
+// Inventory toggle
+function toggleInventory() {
+  const inventoryDiv = document.getElementById("inventory");
+  if(inventoryDiv.style.display === "none") {
+    inventoryDiv.style.display = "block";
+    inventoryDiv.innerHTML = `<p>Inventory:</p>
+    <p>Bombs: ${bombs}</p>
+    <p>Gold: ${gold}</p>
+    <p>HP: ${playerHP}/${maxHP}</p>`;
+  } else {
+    inventoryDiv.style.display = "none";
+  }
+}
+
+// Next room event logic
+function nextRoom() {
+  if(gameCompleted) {
+    log("Game is over. Reload to play again.");
+    return;
+  }
+  if(inBattle) {
+    log("You can't move forward during battle!");
+    return;
+  }
+
+  roomCount++;
+  // Hide shop and inventory if open
+  document.getElementById("shop").style.display = "none";
+  document.getElementById("inventory").style.display = "none";
+
+  log(`--- Room ${roomCount} ---`);
+
+  // Trader chance 5%
+  let chance = Math.random();
+  if(chance < 0.05) {
+    startShop();
+    return;
+  }
+  // Monster chance 65%
+  if(chance < 0.70) {
+    startBattle();
+    return;
+  }
+
+  // Else empty room (no healing)
+  log(`The room is empty. Nothing here.`);
+}
+
+// Save & load game (simple)
 function saveGame() {
-  const state = {playerName, playerHP, maxHP, weaponLevel, armorLevel, gold, inventory, roomCount, foundDagskar, gameCompleted};
-  localStorage.setItem('rogueSave', JSON.stringify(state));
+  const saveData = {
+    roomCount, playerHP, gold, bombs, gameLog, inBattle, currentMonster, currentMonsterHP, isBossRoom, gameCompleted
+  };
+  localStorage.setItem("miniRogueSave", JSON.stringify(saveData));
   log("Game saved.");
 }
 
 function loadGame() {
-  const state = JSON.parse(localStorage.getItem('rogueSave'));
-  if (!state) return log("No save found.");
-  Object.assign(window, state);
+  const saveData = JSON.parse(localStorage.getItem("miniRogueSave"));
+  if(!saveData) {
+    log("No saved game found.");
+    return;
+  }
+  roomCount = saveData.roomCount;
+  playerHP = saveData.playerHP;
+  gold = saveData.gold;
+  bombs = saveData.bombs;
+  gameLog = saveData.gameLog || [];
+  inBattle = saveData.inBattle;
+  currentMonster = saveData.currentMonster;
+  currentMonsterHP = saveData.currentMonsterHP;
+  isBossRoom = saveData.isBossRoom;
+  gameCompleted = saveData.gameCompleted;
+
+  document.getElementById("intro").style.display = "none";
+  document.getElementById("game").style.display = "block";
+  document.getElementById("latestMessage").textContent = gameLog.length > 0 ? gameLog[gameLog.length - 1] : "";
+  document.getElementById("output").textContent = gameLog.join("\n");
+
+  if(inBattle) {
+    document.getElementById("battle").style.display = "block";
+  } else {
+    document.getElementById("battle").style.display = "none";
+  }
   log("Game loaded.");
-  updateStatus();
+}
+
+// Start game
+function startGame() {
+  const nameInput = document.getElementById("playerNameInput");
+  const name = nameInput.value.trim();
+  if(name === "") {
+    alert("Please enter a name.");
+    return;
+  }
+  document.getElementById("intro").style.display = "none";
+  document.getElementById("game").style.display = "block";
+  log(`Welcome, ${name}, to the dungeon of Gold & Glory!`);
+  playerHP = 30;
+  gold = 20;
+  bombs = 3;
+  roomCount = 0;
+  gameCompleted = false;
+  gameLog = [];
+  currentMonster = "";
+  inBattle = false;
+  nextRoom();
 }
 </script>
+
 </body>
 </html>
-
