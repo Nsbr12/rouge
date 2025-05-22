@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<title>Mini Rouge – Guld & Ära</title>
+<style>
+  body {
+    background-color: #111;
+    color: #0f0;
+    font-family: monospace;
+    padding: 20px;
+  }
+  #output {
+    white-space: pre-wrap;
+    border: 1px solid #0f0;
+    padding: 10px;
+    height: 400px;
+    overflow-y: auto;
+    background-color: #000;
+  }
+  button {
+    margin-top: 10px;
+    background-color: #222;
+    color: #0f0;
+    padding: 10px;
+    border: 1px solid #0f0;
+    cursor: pointer;
+    margin-right: 5px;
+  }
+  input {
+    padding: 5px;
+    background-color: #000;
+    color: #0f0;
+    border: 1px solid #0f0;
+  }
+  #shop {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed #0f0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Mini Rouge – Guld & Ära</h1>
+
+<div id="intro">
+  <p>Skriv in ditt namn, gamle krigare:</p>
+  <input type="text" id="playerNameInput" placeholder="Ditt namn här" />
+  <button onclick="startGame()">Starta äventyret</button>
+</div>
+
+<div id="game" style="display:none;">
+  <div id="output"></div>
+  <div id="controls">
+    <button onclick="nextRoom()">Fortsätt vidare</button>
+  </div>
+  <div id="battle" style="display:none;">
+    <p>Välj attack:</p>
+    <button onclick="attack('Slash')">Slash</button>
+    <button onclick="attack('Fire')">Fire</button>
+    <button onclick="attack('Ice')">Ice</button>
+  </div>
+  <div id="shop" style="display:none;">
+    <p>🧙 En handelsman erbjuder sina varor:</p>
+    <button onclick="buy('heal')">Hälsodryck (5 guld)</button>
+    <button onclick="buy('weapon')">Vapenuppgradering (10 guld)</button>
+    <button onclick="buy('armor')">Rustningsuppgradering (10 guld)</button>
+    <button onclick="leaveShop()">Gå vidare</button>
+  </div>
+</div>
+
+<script>
+let playerName = "Tharion";
+let playerHP = 25;
+let maxHP = 25;
+let weaponLevel = 1;
+let armorLevel = 0;
+let gold = 10;
+let roomCount = 0;
+let inBattle = false;
+let currentEnemy = null;
+let foundDagskar = false;
+
+const enemyTypes = [
+  { name: "Ung Goblin", hp: 10, weakness: "Slash" },
+  { name: "Isande Ande", hp: 12, weakness: "Fire" },
+  { name: "Eldbest", hp: 14, weakness: "Ice" },
+  { name: "Rutten Krigare", hp: 11, weakness: "Slash" },
+  { name: "Sörjande Slime", hp: 9, weakness: "Fire" },
+];
+
+const bosses = [
+  {
+    name: "Skuggfursten",
+    hp: 35,
+    weakness: "Fire",
+    boss: true,
+    intro: "En mörk gestalt reser sig ur skuggorna. Skuggfursten viskar: 'Jag minns dig, krigare... din tid är ute!'"
+  },
+  {
+    name: "Ishäxan",
+    hp: 40,
+    weakness: "Slash",
+    boss: true,
+    intro: "Kylan biter in i benet. Ett skratt ekar. Ishäxan har väntat länge på detta."
+  },
+  {
+    name: "Eldens Garde",
+    hp: 45,
+    weakness: "Ice",
+    boss: true,
+    intro: "Eldens vrål slår emot dig. Den uråldriga Garde vaknar med vrede."
+  }
+];
+
+const reflections = [
+  "Du minns doften av blod och järn – inget har förändrats.",
+  "Gamla ärr svider när du kliver djupare.",
+  "En gång hyllades du här. Nu är du bara en skugga av ditt forna jag.",
+  "Tankarna vandrar till de du inte kunde rädda...",
+  "Du hör svärdet Dagskär viska från djupet."
+];
+
+function log(text) {
+  const output = document.getElementById('output');
+  output.innerText += '\n' + text;
+  output.scrollTop = output.scrollHeight;
+}
+
+function startGame() {
+  const nameInput = document.getElementById('playerNameInput').value.trim();
+  if (nameInput !== "") playerName = nameInput;
+
+  document.getElementById('intro').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+
+  log(`Du är ${playerName}, en åldrad krigare med ärr från tusen strider.
+Grottan du en gång rensade från ondska har åter fyllts med mörker.
+Du har återvänt för att finna det förlorade svärdet Dagskär – och kanske din frid.`);
+  updateStatus();
+}
+
+function nextRoom() {
+  if (inBattle) return;
+
+  roomCount++;
+  log(`\n--- Rum ${roomCount} ---`);
+  if (Math.random() < 0.5) log("> " + reflections[Math.floor(Math.random() * reflections.length)]);
+
+  const event = Math.random();
+  if (event < 0.2) {
+    startShop();
+  } else if (event < 0.4) {
+    log("Rummet är tomt. Bara ekon av svunna rop. Du vilar lite.");
+    heal(3);
+  } else if (event < 0.6) {
+    findItem();
+  } else {
+    startBattle();
+  }
+
+  updateStatus();
+}
+
+function findItem() {
+  const amount = Math.floor(Math.random() * 5) + 3;
+  gold += amount;
+  log(`${playerName} hittar en gammal pung med ${amount} guld.`);
+}
+
+function heal(amount) {
+  playerHP = Math.min(playerHP + amount, maxHP);
+  log(`+${amount} HP återställt.`);
+}
+
+function startBattle() {
+  let enemy;
+  if (roomCount % 15 === 0) {
+    enemy = Object.assign({}, bosses[(roomCount / 15 - 1) % bosses.length]);
+    log(`\n⚠️ BOSSSTRID! ⚠️`);
+    log(enemy.intro);
+  } else {
+    enemy = Object.assign({}, enemyTypes[Math.floor(Math.random() * enemyTypes.length)]);
+    log(`En ${enemy.name} dyker upp! Den verkar vara svag mot ${enemy.weakness}.`);
+  }
+
+  currentEnemy = enemy;
+  inBattle = true;
+  document.getElementById('battle').style.display = 'block';
+  document.getElementById('controls').style.display = 'none';
+}
+
+function attack(type) {
+  if (!inBattle) return;
+
+  let baseDamage = Math.floor(Math.random() * 5) + 2 + weaponLevel;
+  if (type === currentEnemy.weakness) {
+    baseDamage += 4;
+    log(`Din ${type}-attack är super effektiv!`);
+  } else {
+    log(`Du använder ${type}-attack.`);
+  }
+
+  currentEnemy.hp -= baseDamage;
+  log(`Du gör ${baseDamage} skada. Fiendens HP: ${Math.max(currentEnemy.hp, 0)}`);
+
+  if (currentEnemy.hp <= 0) {
+    log(`Du besegrade ${currentEnemy.name}!`);
+    const reward = Math.floor(Math.random() * 10) + 5;
+    gold += reward;
+    log(`💰 Du plockar upp ${reward} guld.`);
+
+    if (currentEnemy.boss) {
+      log("🎉 Du har besegrat en boss! Du känner en uråldrig kraft återvända.");
+      heal(10);
+      weaponLevel += 1;
+      armorLevel += 1;
+      log("⚔️ Ditt vapen och rustning förstärks!");
+    }
+
+    if (roomCount >= 10 && !foundDagskar) {
+      foundDagskar = true;
+      log("\n⚔️ I djupet finner du Dagskär – svärdet från legenden. Du håller det med vördnad.\n");
+      weaponLevel += 3;
+    }
+
+    endBattle();
+    return;
+  }
+
+  // Fienden attackerar
+  let enemyDamage = Math.max(0, Math.floor(Math.random() * 5) + (currentEnemy.boss ? 2 : 0) - armorLevel);
+  playerHP -= enemyDamage;
+  log(`${currentEnemy.name} attackerar och gör ${enemyDamage} skada!`);
+
+  updateStatus();
+
+  if (playerHP <= 0) {
+    log(`\n${playerName} faller på knä. Grottan vinner denna gång.\nSpelet är slut.`);
+    document.querySelectorAll("button").forEach(btn => btn.disabled = true);
+    inBattle = false;
+  }
+}
+
+function endBattle() {
+  inBattle = false;
+  currentEnemy = null;
+  document.getElementById('battle').style.display = 'none';
+  document.getElementById('controls').style.display = 'block';
+  updateStatus();
+}
+
+function updateStatus() {
+  // Skriv ut status längst ner i loggen
+  log(`HP: ${playerHP}/${maxHP} | Vapen: ${weaponLevel} | Rustning: ${armorLevel} | Guld: ${gold}`);
+}
+
+function startShop() {
+  log("🧙 En handelsman dyker upp i skuggorna och erbjuder sina varor.");
+  document.getElementById('shop').style.display = 'block';
+  document.getElementById('controls').style.display = 'none';
+}
+
+function buy(item) {
+  if (item === "heal" && gold >= 5) {
+    heal(10);
+    gold -= 5;
+    log("Du köper en hälsodryck och känner kraften återvända.");
+  } else if (item === "weapon" && gold >= 10) {
+    weaponLevel++;
+    gold -= 10;
+    log("Du köper en vassare klinga.");
+  } else if (item === "armor" && gold >= 10) {
+    armorLevel++;
+    gold -= 10;
+    log("Du får en ny rem på din gamla rustning.");
+  } else {
+    log("Du har inte tillräckligt med guld för det.");
+  }
+  updateStatus();
+}
+
+function leaveShop() {
+  log("Du tackar och går vidare...");
+  document.getElementById('shop').style.display = 'none';
+  document.getElementById('controls').style.display = 'block';
+}
+</script>
+
+</body>
+</html>
